@@ -11,7 +11,7 @@ from PyQt6.QtWidgets import (
     QComboBox, QDateEdit, QTextEdit, QToolBar,
     QHeaderView, QGroupBox
 )
-from PyQt6.QtGui import QAction, QPixmap
+from PyQt6.QtGui import QAction, QPixmap, QIcon
 from PyQt6.QtCore import Qt, QDate
 
 from matplotlib.figure import Figure
@@ -439,7 +439,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.db = Database()
-        self.setWindowTitle("Финансовый дневник")
+        self.setWindowTitle("Debtify")
+        self.setWindowIcon(QIcon("finanse.ico"))
         self.resize(1000, 600)
         self._ui()
         self.refresh()
@@ -651,16 +652,20 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def show_about(self):
-        pix = make_pix(Qt.GlobalColor.darkCyan, (64, 64))
+        pix = QPixmap("finanse.png")
         msg = QMessageBox(self)
         msg.setWindowTitle("О программе")
-        msg.setIconPixmap(pix)
-        msg.setText("Финансовый дневник\nАвтор: Егор Волков\n2025")
+        if not pix.isNull():
+            pix = pix.scaled(64, 64, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            msg.setIconPixmap(pix)
+        msg.setText("Debtify\nАвтор: Егор Волков\n2025")
         msg.exec()
 
 
 def main():
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon("finanse.ico"))
+    app.setApplicationName("Debtify")
     win = MainWindow()
     win.show()
     sys.exit(app.exec())
