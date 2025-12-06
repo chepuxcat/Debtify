@@ -26,23 +26,23 @@ class Database:
         self.path = path
         self.conn = sqlite3.connect(self.path)
         self.conn.row_factory = sqlite3.Row
-        self._init_db()
+        self._init()
 
-    def _init_db(self):
+    def _init(self):
         cur = self.conn.cursor()
         cur.execute("CREATE TABLE IF NOT EXISTS categories (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, kind TEXT NOT NULL CHECK(kind IN ('expense','income')))")
         cur.execute("CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, dt TEXT NOT NULL, kind TEXT NOT NULL CHECK(kind IN ('expense','income')), amount REAL NOT NULL, category_id INTEGER, description TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')), FOREIGN KEY(category_id) REFERENCES categories(id) ON DELETE SET NULL)")
         self.conn.commit()
-        self._create_default_categories()
+        self._create_defaults()
 
-    def _create_default_categories(self):
+    def _create_defaults(self):
         cur = self.conn.cursor()
         defaults = [("Продукты", "expense"), ("Кафе и рестораны", "expense"), ("Транспорт", "expense"), ("Развлечения", "expense"), ("Зарплата", "income"), ("Подарки", "income"), ("Проценты/Дивиденды", "income")]
         for n, k in defaults:
             cur.execute("INSERT OR IGNORE INTO categories (name, kind) VALUES (?, ?)", (n, k))
         self.conn.commit()
 
-    def get_categories(self, kind=None):
+    def get_cats(self, kind=None):
         cur = self.conn.cursor()
         if kind in ("expense", "income"):
             cur.execute("SELECT * FROM categories WHERE kind=? ORDER BY name", (kind,))
@@ -50,22 +50,22 @@ class Database:
             cur.execute("SELECT * FROM categories ORDER BY kind, name")
         return cur.fetchall()
 
-    def add_category(self, name, kind):
+    def add_cat(self, name, kind):
         cur = self.conn.cursor()
         cur.execute("INSERT INTO categories (name, kind) VALUES (?, ?)", (name, kind))
         self.conn.commit()
 
-    def change_category(self, cid, name, kind):
+    def edit_cat(self, cid, name, kind):
         cur = self.conn.cursor()
         cur.execute("UPDATE categories SET name=?, kind=? WHERE id=?", (name, kind, cid))
         self.conn.commit()
 
-    def remove_category(self, cid):
+    def del_cat(self, cid):
         cur = self.conn.cursor()
         cur.execute("DELETE FROM categories WHERE id=?", (cid,))
         self.conn.commit()
 
-    def add_transaction(self, dt, kind, amount, cat_id, desc):
+    def add_tx(self, dt, kind, amount, cat_id, desc):
         cur = self.conn.cursor()
         cur.execute(
             "INSERT INTO transactions (dt, kind, amount, category_id, description) VALUES (?, ?, ?, ?, ?)",
@@ -73,7 +73,7 @@ class Database:
         )
         self.conn.commit()
 
-    def change_transaction(self, tx_id, dt, kind, amount, cat_id, desc):
+    def edit_tx(self, tx_id, dt, kind, amount, cat_id, desc):
         cur = self.conn.cursor()
         cur.execute(
             "UPDATE transactions SET dt=?, kind=?, amount=?, category_id=?, description=? WHERE id=?",
@@ -81,12 +81,12 @@ class Database:
         )
         self.conn.commit()
 
-    def delete_transaction(self, tx_id):
+    def del_tx(self, tx_id):
         cur = self.conn.cursor()
         cur.execute("DELETE FROM transactions WHERE id=?", (tx_id,))
         self.conn.commit()
 
-    def find_transactions(self, start=None, end=None, category=None, kind=None, text=None):
+    def find_tx(self, start=None, end=None, category=None, kind=None, text=None):
         cur = self.conn.cursor()
         q = "SELECT t.*, c.name as category_name FROM transactions t LEFT JOIN categories c ON c.id=t.category_id WHERE 1=1"
         p = []
@@ -112,7 +112,7 @@ class Database:
         cur.execute(q, p)
         return cur.fetchall()
 
-    def balance_by_date(self, start=None, end=None):
+    def get_balance(self, start=None, end=None):
         cur = self.conn.cursor()
         q = "SELECT dt, SUM(CASE WHEN kind='income' THEN amount ELSE -amount END) as delta FROM transactions WHERE 1=1"
         p = []
@@ -133,7 +133,7 @@ class Database:
             res.append((r['dt'], float(total)))
         return res
 
-    def category_sums(self, start=None, end=None, kind=None):
+    def cat_sums(self, start=None, end=None, kind=None):
         cur = self.conn.cursor()
         q = "SELECT c.name as category_name, SUM(t.amount) as total FROM transactions t JOIN categories c ON c.id=t.category_id WHERE 1=1"
         p = []
@@ -151,17 +151,17 @@ class Database:
         return cur.fetchall()
 
 
-def iso_from_date(qd: QDate):
+def to_iso(qd: QDate):
     d = date(qd.year(), qd.month(), qd.day())
     return d.isoformat()
 
 
-def date_from_iso(s: str):
+def from_iso(s: str):
     y, m, d = map(int, s.split("-"))
     return QDate(y, m, d)
 
 
-def format_money(x):
+def fmt_money(x):
     try:
         d = Decimal(x)
     except:
@@ -223,9 +223,9 @@ class EditTransactionWindow(QDialog):
         self.type.currentTextChanged.connect(self._cats)
 
         if data:
-            self.date.setDate(date_from_iso(data['dt']))
+            self.date.setDate(from_iso(data['dt']))
             self.type.setCurrentText(data['kind'])
-            self.amount.setText(format_money(data['amount']))
+            self.amount.setText(fmt_money(data['amount']))
             cid = data['category_id']
             if cid:
                 for i in range(self.cat.count()):
@@ -237,12 +237,12 @@ class EditTransactionWindow(QDialog):
     def _cats(self):
         self.cat.clear()
         k = self.type.currentText()
-        cats = self.db.get_categories(kind=k)
+        cats = self.db.get_cats(kind=k)
         for c in cats:
             self.cat.addItem(c['name'], c['id'])
 
     def get_info(self):
-        dt = iso_from_date(self.date.date())
+        dt = to_iso(self.date.date())
         kind = self.type.currentText()
         raw = self.amount.text().strip().replace(",", ".")
         try:
@@ -297,7 +297,7 @@ class CategoryWindow(QDialog):
 
     def load(self):
         self.table.setRowCount(0)
-        cats = self.db.get_categories()
+        cats = self.db.get_cats()
         for c in cats:
             r = self.table.rowCount()
             self.table.insertRow(r)
@@ -313,7 +313,7 @@ class CategoryWindow(QDialog):
             QMessageBox.warning(self, "Ошибка", "Название не может быть пустым")
             return
         try:
-            self.db.add_category(n, k)
+            self.db.add_cat(n, k)
         except sqlite3.IntegrityError:
             QMessageBox.warning(self, "Ошибка", "Такая категория уже существует")
         self.load()
@@ -338,7 +338,7 @@ class CategoryWindow(QDialog):
             QMessageBox.warning(self, "Ошибка", "Название не может быть пустым")
             return
         try:
-            self.db.change_category(cid, n, k)
+            self.db.edit_cat(cid, n, k)
         except Exception as e:
             QMessageBox.warning(self, "Ошибка", str(e))
         self.load()
@@ -353,7 +353,7 @@ class CategoryWindow(QDialog):
         ask = QMessageBox.question(self, "Удалить?", "Удалить категорию? Транзакции будут без категории.",
                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if ask == QMessageBox.StandardButton.Yes:
-            self.db.remove_category(cid)
+            self.db.del_cat(cid)
             self.load()
 
 
@@ -375,9 +375,9 @@ class ReportWindow(QDialog):
         self.end.setDate(QDate.currentDate())
 
         if start:
-            self.start.setDate(date_from_iso(start))
+            self.start.setDate(from_iso(start))
         if end:
-            self.end.setDate(date_from_iso(end))
+            self.end.setDate(from_iso(end))
 
         self.kind = QComboBox()
         self.kind.addItems(["all", "expense", "income"])
@@ -403,14 +403,14 @@ class ReportWindow(QDialog):
 
     def draw(self):
         self.fig.clear()
-        s = iso_from_date(self.start.date())
-        e = iso_from_date(self.end.date())
+        s = to_iso(self.start.date())
+        e = to_iso(self.end.date())
         k = self.kind.currentText()
         if k == "all":
             k = None
 
         ax1 = self.fig.add_subplot(2, 1, 1)
-        data = self.db.category_sums(start=s, end=e, kind=k)
+        data = self.db.cat_sums(start=s, end=e, kind=k)
         names = [r['category_name'] for r in data]
         vals = [r['total'] for r in data]
 
@@ -422,7 +422,7 @@ class ReportWindow(QDialog):
             ax1.text(0.5, 0.5, "Нет данных", ha='center')
 
         ax2 = self.fig.add_subplot(2, 1, 2)
-        bal = self.db.balance_by_date(s, e)
+        bal = self.db.get_balance(s, e)
         if bal:
             xs = [datetime.fromisoformat(d[0]).date() for d in bal]
             ys = [d[1] for d in bal]
@@ -535,7 +535,7 @@ class MainWindow(QMainWindow):
     def _upd_cat(self):
         self.fc.clear()
         self.fc.addItem("Все", None)
-        for cat in self.db.get_categories():
+        for cat in self.db.get_cats():
             self.fc.addItem(f"{cat['name']} ({cat['kind']})", cat['id'])
 
     def clear_filters(self):
@@ -547,15 +547,15 @@ class MainWindow(QMainWindow):
         self.refresh()
 
     def refresh(self):
-        s = iso_from_date(self.fs.date())
-        e = iso_from_date(self.fe.date())
+        s = to_iso(self.fs.date())
+        e = to_iso(self.fe.date())
         cat = self.fc.currentData()
         k = self.fk.currentText()
         if k == "all":
             k = None
         text = self.fsr.text().strip() or None
 
-        recs = self.db.find_transactions(s, e, cat, k, text)
+        recs = self.db.find_tx(s, e, cat, k, text)
         self.table.setRowCount(0)
 
         total = Decimal('0')
@@ -568,7 +568,7 @@ class MainWindow(QMainWindow):
             self.table.setItem(row, 0, QTableWidgetItem(str(r['id'])))
             self.table.setItem(row, 1, QTableWidgetItem(r['dt']))
             self.table.setItem(row, 2, QTableWidgetItem(r['kind']))
-            self.table.setItem(row, 3, QTableWidgetItem(format_money(r['amount'])))
+            self.table.setItem(row, 3, QTableWidgetItem(fmt_money(r['amount'])))
             self.table.setItem(row, 4, QTableWidgetItem(r['category_name'] or ""))
             self.table.setItem(row, 5, QTableWidgetItem(r['description'] or ""))
 
@@ -580,9 +580,9 @@ class MainWindow(QMainWindow):
                 total -= val
                 exp += val
 
-        self.total_lbl.setText(f"Баланс: {format_money(total)}")
-        self.inc_lbl.setText(f"Доходы: {format_money(inc)}")
-        self.exp_lbl.setText(f"Расходы: {format_money(exp)}")
+        self.total_lbl.setText(f"Баланс: {fmt_money(total)}")
+        self.inc_lbl.setText(f"Доходы: {fmt_money(inc)}")
+        self.exp_lbl.setText(f"Расходы: {fmt_money(exp)}")
 
     def add_tx(self):
         dlg = EditTransactionWindow(self.db, self)
@@ -590,7 +590,7 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             try:
                 dt, kind, money, cat, desc = dlg.get_info()
-                self.db.add_transaction(dt, kind, money, cat, desc)
+                self.db.add_tx(dt, kind, money, cat, desc)
             except Exception as e:
                 QMessageBox.warning(self, "Ошибка", str(e))
             self._upd_cat()
@@ -616,7 +616,7 @@ class MainWindow(QMainWindow):
         if dlg.exec():
             try:
                 dt, kind, money, cat, desc = dlg.get_info()
-                self.db.change_transaction(tx_id, dt, kind, money, cat, desc)
+                self.db.edit_tx(tx_id, dt, kind, money, cat, desc)
             except Exception as e:
                 QMessageBox.warning(self, "Ошибка", str(e))
             self._upd_cat()
@@ -634,7 +634,7 @@ class MainWindow(QMainWindow):
                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if ask == QMessageBox.StandardButton.Yes:
             try:
-                self.db.delete_transaction(tx_id)
+                self.db.del_tx(tx_id)
             except Exception as e:
                 QMessageBox.warning(self, "Ошибка", str(e))
             self.refresh()
@@ -645,8 +645,8 @@ class MainWindow(QMainWindow):
         self._upd_cat()
 
     def open_reports(self):
-        s = iso_from_date(self.fs.date())
-        e = iso_from_date(self.fe.date())
+        s = to_iso(self.fs.date())
+        e = to_iso(self.fe.date())
         dlg = ReportWindow(self.db, self, s, e)
         dlg.exec()
 
